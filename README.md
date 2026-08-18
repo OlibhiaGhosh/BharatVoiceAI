@@ -5,13 +5,13 @@ BharatVoiceAI is a voice-first customer support assistant with a clean MVP path 
 ## Monorepo layout
 
 - `apps/frontend` - React client
-- `apps/backend` - FastAPI API
+- `apps/backend` - Fastify + TypeScript API
 - `docs` - architecture and delivery notes
 
 ## Core flows
 
 - `initial` branch: voice to text -> basic retrieval -> answer
-- `final` branch: advanced query normalization, expansion, hybrid retrieval, reranking, confidence gating, and admin ingestion
+- `final` branch: Sarvam STT/TTS + Neon/Drizzle + Qdrant + advanced retrieval pipeline
 
 ## Quick start
 
@@ -19,10 +19,8 @@ BharatVoiceAI is a voice-first customer support assistant with a clean MVP path 
 
 ```bash
 cd apps/backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload
+npm install
+npm run dev
 ```
 
 ### Frontend
@@ -37,11 +35,11 @@ npm run dev
 
 Backend supports these optional variables:
 
-- `ELEVENLABS_API_KEY`
-- `OPENROUTER_API_KEY`
-- `OPENROUTER_MODEL`
-- `SUPABASE_URL`
-- `SUPABASE_SERVICE_ROLE_KEY`
-- `SUPABASE_BUCKET`
-- `SUPABASE_TABLE`
+- `DATABASE_URL`
+- `QDRANT_URL`
+- `QDRANT_API_KEY`
+- `SARVAM_API_KEY`
+- `SARVAM_CHAT_MODEL`
+- `SARVAM_STT_MODEL`
+- `SARVAM_TTS_MODEL`
 - `APP_ENV`

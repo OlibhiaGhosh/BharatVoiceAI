@@ -9,10 +9,12 @@ Build a multilingual customer support assistant that accepts voice input, turns 
 The project is designed around a deployable stack:
 
 - Frontend: React + Vite + Tailwind CSS
-- Backend: FastAPI
-- Speech-to-text: ElevenLabs STT with browser speech fallback
-- Retrieval store: Supabase `pgvector` in production, JSON-backed local store in development
-- LLM: OpenRouter in production, local templated fallback in development
+- Backend: Fastify + TypeScript
+- Speech-to-text: Sarvam Saaras v3 with browser speech fallback
+- Text-to-speech: Sarvam Bulbul v3
+- Relational data: Neon Postgres with Drizzle ORM
+- Vector store: Qdrant
+- LLM: Sarvam chat completions
 - Hosting target: Cloudflare Pages + Render
 
 ## High-Level Architecture
@@ -20,46 +22,46 @@ The project is designed around a deployable stack:
 ```text
 Browser
   -> records audio or uses browser speech recognition
-  -> sends audio + transcript hint to FastAPI
+  -> sends audio + transcript hint to Fastify
 
-FastAPI
-  -> SpeechService: ElevenLabs transcription
-  -> QueryPipeline: normalize -> expand -> hybrid retrieve -> rerank -> confidence gate
-  -> AnswerService: grounded prompt to OpenRouter or local fallback
-  -> returns transcript, evidence, confidence, answer, escalation flag
+Fastify API
+  -> Sarvam STT: multilingual transcription
+  -> QueryPipeline: normalize -> expand -> Qdrant retrieve -> rerank -> confidence gate
+  -> Sarvam chat: grounded answer generation
+  -> Sarvam TTS: optional voice reply
+  -> returns transcript, evidence, confidence, answer, escalation flag, optional audio
 
 Knowledge Layer
-  -> Sample JSON corpus for local development
-  -> Supabase pgvector for deployed mode
-  -> Upload endpoint for new documents
+  -> Neon Postgres for knowledge metadata and conversation logs
+  -> Qdrant for vector search
+  -> Seeded collection for local/demo mode
+  -> Upload endpoint for new knowledge
 ```
 
 ## Final Pipeline
 
 1. Capture user voice in the browser.
-2. Transcribe with ElevenLabs when configured.
+2. Transcribe with Sarvam when configured.
 3. Normalize the transcript to protect IDs, remove filler, and standardize casing.
 4. Expand the query into alternate phrasings.
-5. Retrieve candidate chunks with:
-   - lexical similarity
-   - semantic tag overlap
-   - keyword boosts for IDs and domain terms
+5. Retrieve candidate chunks from Qdrant.
 6. Rerank candidates by question-answer fitness.
 7. Apply confidence thresholding.
-8. Generate an answer only from retrieved evidence.
-9. Escalate if confidence is too low.
+8. Generate an answer from Sarvam chat using only retrieved evidence.
+9. Optionally synthesize the answer through Sarvam TTS.
+10. Escalate if confidence is too low.
 
 ## Progressive Branch Design
 
 - `initial`: speech to text, basic retrieval, simple answering
 - `feat1`: repo scaffold and environment setup
-- `feat2`: backend health, config, and sample corpus
-- `feat3`: basic RAG service and answer endpoint
+- `feat2`: Fastify backend health, config, and TypeScript skeleton
+- `feat3`: basic STT to simple retrieval endpoint
 - `feat4`: frontend voice UI and transcript rendering
-- `feat5`: ElevenLabs and OpenRouter provider integration
-- `feat6`: query normalization and expansion
-- `feat7`: hybrid retrieval and reranking
-- `feat8`: confidence gating, upload ingestion, and observability-ready response metadata
+- `feat5`: Sarvam STT/TTS and chat provider integration
+- `feat6`: Neon + Drizzle schema and repository layer
+- `feat7`: Qdrant retrieval and reranking
+- `feat8`: confidence gating, upload ingestion, and richer response metadata
 - `final`: cleaned integrated product state
 
 ## Data Model
@@ -76,17 +78,19 @@ Knowledge Layer
 ### Assistant response
 
 - `transcript`
-- `normalized_query`
-- `expanded_queries`
+- `normalizedQuery`
+- `expandedQueries`
 - `answer`
 - `confidence`
-- `should_escalate`
+- `shouldEscalate`
 - `citations`
-- `retrieved_chunks`
+- `retrievedChunks`
+- `audioBase64`
 
 ## Deployment Notes
 
 - Frontend can be deployed to Cloudflare Pages as a static app.
-- Backend can be deployed on Render as a Docker or Python web service.
-- Supabase can store vectors, uploads, and optional auth records.
-- If ElevenLabs or OpenRouter quotas run out, local fallbacks still keep the demo working.
+- Backend can be deployed on Render or Railway as a Node web service.
+- Neon stores relational data and Drizzle manages schema changes.
+- Qdrant stores vector embeddings and retrieval payloads.
+- If Sarvam credentials are missing, browser speech and local fallback responses still keep the demo usable.
