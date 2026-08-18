@@ -10,8 +10,8 @@ class AssistantService:
         self.rag_service = BasicRagService()
         self.llm_service = LlmService()
 
-    async def respond(self, transcript_hint: str) -> AssistantResponse:
-        transcript = await self.speech_service.transcribe(transcript_hint=transcript_hint)
+    async def respond(self, audio_bytes: bytes | None, transcript_hint: str) -> AssistantResponse:
+        transcript = await self.speech_service.transcribe(audio_bytes=audio_bytes, transcript_hint=transcript_hint)
         retrieved_chunks = self.rag_service.retrieve(transcript)
         answer = await self.llm_service.answer(transcript, retrieved_chunks)
         confidence = retrieved_chunks[0].score if retrieved_chunks else 0.0

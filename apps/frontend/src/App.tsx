@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
-import { sendTranscript } from "./api";
+import { sendVoiceRequest } from "./api";
 import type { AssistantResponse } from "./types";
 
 type SpeechRecognitionCtor = new () => SpeechRecognition;
@@ -13,32 +13,66 @@ declare global {
 }
 
 function App() {
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<BlobPart[]>([]);
   const [transcript, setTranscript] = useState("");
   const [response, setResponse] = useState<AssistantResponse | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
 
-  function startListening() {
-    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!Recognition) {
-      setError("Browser speech recognition is not available here.");
-      return;
-    }
-    setError("");
-    const recognition = new Recognition();
-    recognition.lang = "en-IN";
-    recognition.interimResults = false;
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
-      const value = event.results[0][0].transcript;
-      setTranscript(value);
+  useEffect(() => {
+    return () => {
+      recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
     };
-    recognition.start();
+  }, []);
+
+  async function startListening() {
+    const Recognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    setError("");
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream);
+    chunksRef.current = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) {
+        chunksRef.current.push(event.data);
+      }
+    };
+    recorder.onstop = async () => {
+      const audioBlob = new Blob(chunksRef.current, { type: "audio/webm" });
+      await submitVoice(audioBlob);
+      recorder.stream.getTracks().forEach((track) => track.stop());
+    };
+    recorderRef.current = recorder;
+    recorder.start();
+    setIsRecording(true);
+
+    if (Recognition) {
+      const recognition = new Recognition();
+      recognition.lang = "en-IN";
+      recognition.interimResults = true;
+      recognition.onresult = (event: SpeechRecognitionEvent) => {
+        const latest = event.results[event.results.length - 1];
+        setTranscript(latest[0].transcript);
+      };
+      recognition.start();
+    }
   }
 
-  async function submitTranscript() {
+  function stopListening() {
+    recorderRef.current?.stop();
+    setIsRecording(false);
+  }
+
+  async function submitVoice(audioBlob?: Blob) {
     try {
       setLoading(true);
-      const data = await sendTranscript(transcript);
+      const formData = new FormData();
+      formData.append("transcript_hint", transcript);
+      if (audioBlob) {
+        formData.append("audio", audioBlob, "voice.webm");
+      }
+      const data = await sendVoiceRequest(formData);
       setResponse(data);
     } catch (submissionError) {
       setError(submissionError instanceof Error ? submissionError.message : "Failed to submit transcript.");
@@ -61,9 +95,14 @@ function App() {
         <section className="mt-8 grid gap-6 lg:grid-cols-[1fr_1fr]">
           <article className="rounded-3xl border border-white/10 bg-white/5 p-6">
             <h2 className="text-2xl font-semibold">Voice Capture</h2>
-            <button className="mt-5 rounded-full bg-amber-400 px-5 py-3 font-medium text-slate-950" onClick={startListening}>
-              Start Listening
-            </button>
+            <div className="mt-5 flex gap-3">
+              <button className="rounded-full bg-amber-400 px-5 py-3 font-medium text-slate-950" disabled={isRecording} onClick={startListening}>
+                Start Listening
+              </button>
+              <button className="rounded-full border border-white/20 px-5 py-3 font-medium" disabled={!isRecording} onClick={stopListening}>
+                Stop
+              </button>
+            </div>
             <textarea
               className="mt-6 min-h-40 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3"
               value={transcript}
@@ -72,7 +111,7 @@ function App() {
             <button
               className="mt-4 rounded-full bg-teal-400 px-5 py-3 font-medium text-slate-950"
               disabled={!transcript || loading}
-              onClick={submitTranscript}
+              onClick={() => submitVoice()}
             >
               Send to Assistant
             </button>
