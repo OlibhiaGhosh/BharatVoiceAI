@@ -1,0 +1,15 @@
+node_modules/
+dist/
+build/
+.venv/
+venv/
+__pycache__/
+.pytest_cache/
+.mypy_cache/
+.coverage
+*.pyc
+.env
+apps/backend/uploads/
+apps/backend/.cache/
+apps/backend/data/index.json
+apps/frontend/.vite/
