@@ -15,11 +15,14 @@ declare global {
 function App() {
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<BlobPart[]>([]);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const [isRecording, setIsRecording] = useState(false);
+  const [recordingState, setRecordingState] = useState<"idle" | "recording" | "processing" | "stopped">("idle");
   const [transcriptHint, setTranscriptHint] = useState("");
   const [preferredLanguage, setPreferredLanguage] = useState("en-IN");
   const [includeAudio, setIncludeAudio] = useState(true);
   const [response, setResponse] = useState<AssistantResponse | null>(null);
+  const [replyAudioUrl, setReplyAudioUrl] = useState("");
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [knowledgeTitle, setKnowledgeTitle] = useState("");
@@ -34,15 +37,25 @@ function App() {
 
   useEffect(() => {
     if (!response?.audioBase64) {
+      setReplyAudioUrl("");
       return;
     }
-    const audio = new Audio(`data:audio/wav;base64,${response.audioBase64}`);
+    const url = `data:audio/wav;base64,${response.audioBase64}`;
+    setReplyAudioUrl(url);
+    const audio = new Audio(url);
     void audio.play().catch(() => undefined);
   }, [response]);
+
+  useEffect(() => {
+    return () => {
+      window.speechSynthesis.cancel();
+    };
+  }, []);
 
   async function startRecording() {
     setError("");
     setResponse(null);
+    setRecordingState("recording");
     const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     const recorder = new MediaRecorder(stream);
     chunksRef.current = [];
@@ -65,6 +78,7 @@ function App() {
   function stopRecording() {
     recorderRef.current?.stop();
     setIsRecording(false);
+    setRecordingState("stopped");
   }
 
   function startBrowserSpeech() {
@@ -93,6 +107,7 @@ function App() {
   async function submitAudio(audioBlob: Blob) {
     try {
       setIsLoading(true);
+      setRecordingState("processing");
       const formData = new FormData();
       formData.append("audio", audioBlob, "voice.webm");
       formData.append("transcriptHint", transcriptHint);
@@ -104,7 +119,23 @@ function App() {
       setError(submissionError instanceof Error ? submissionError.message : "Something went wrong.");
     } finally {
       setIsLoading(false);
+      setRecordingState("idle");
     }
+  }
+
+  function playReplyAudio() {
+    if (!response?.answer) {
+      return;
+    }
+    if (replyAudioUrl && audioRef.current) {
+      audioRef.current.currentTime = 0;
+      void audioRef.current.play().catch(() => undefined);
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(response.answer);
+    utterance.lang = preferredLanguage;
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
   }
 
   async function handleKnowledgeSubmit(event: React.FormEvent<HTMLFormElement>) {
@@ -144,19 +175,56 @@ function App() {
             <p className="mt-2 text-sm text-slate-300">
               Use browser speech recognition as a fast transcript hint, or let the backend call Sarvam STT and TTS if configured.
             </p>
+            <div className="mt-6 rounded-2xl border border-white/10 bg-slate-950/70 p-5">
+              <div className="flex items-center gap-3">
+                <span
+                  aria-hidden="true"
+                  className={`record-status-icon ${
+                    recordingState === "recording"
+                      ? "record-status-icon-recording"
+                      : recordingState === "stopped"
+                        ? "record-status-icon-stopped"
+                        : recordingState === "processing"
+                          ? "record-status-icon-processing"
+                          : "record-status-icon-idle"
+                  }`}
+                >
+                  {recordingState === "stopped" ? "■" : recordingState === "processing" ? "◌" : "●"}
+                </span>
+                <div>
+                  <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Recording Status</p>
+                  <p className="mt-1 text-base text-slate-100">
+                    {recordingState === "recording"
+                      ? "Recording in progress"
+                      : recordingState === "stopped"
+                        ? "Recording stopped"
+                        : recordingState === "processing"
+                          ? "Processing voice request"
+                          : "Ready to record"}
+                  </p>
+                </div>
+              </div>
+              <div className={`voice-bars mt-4 ${recordingState}`}>
+                {Array.from({ length: 9 }).map((_, index) => (
+                  <span className="voice-bar" key={index} style={{ animationDelay: `${index * 90}ms` }} />
+                ))}
+              </div>
+            </div>
             <div className="mt-6 flex flex-wrap gap-4">
               <button
-                className="rounded-full bg-amber-500 px-5 py-3 font-medium text-slate-950 transition hover:bg-amber-400"
+                className="inline-flex items-center gap-2 rounded-full bg-amber-500 px-5 py-3 font-medium text-slate-950 transition hover:bg-amber-400"
                 disabled={isRecording || isLoading}
                 onClick={startRecording}
               >
+                <span aria-hidden="true">🎙</span>
                 Start Recording
               </button>
               <button
-                className="rounded-full border border-white/20 px-5 py-3 font-medium transition hover:bg-white/10"
+                className="inline-flex items-center gap-2 rounded-full border border-white/20 px-5 py-3 font-medium transition hover:bg-white/10"
                 disabled={!isRecording}
                 onClick={stopRecording}
               >
+                <span aria-hidden="true">■</span>
                 Stop Recording
               </button>
             </div>
@@ -185,7 +253,7 @@ function App() {
                   onChange={(event) => setIncludeAudio(event.target.checked)}
                   type="checkbox"
                 />
-                Generate Sarvam TTS reply
+                Speak the answer aloud with Sarvam TTS
               </label>
             </div>
 
@@ -250,6 +318,18 @@ function App() {
                 <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Answer</p>
                 <p className="mt-3 leading-7">{response.answer}</p>
                 <div className="mt-5 flex flex-wrap gap-3">
+                  <button
+                    className="inline-flex items-center gap-2 rounded-full bg-teal-500 px-4 py-2 text-sm font-medium text-slate-950 transition hover:bg-teal-400 disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={!response?.answer}
+                    onClick={playReplyAudio}
+                    type="button"
+                  >
+                    <span aria-hidden="true">🔊</span>
+                    Play Reply
+                  </button>
+                  {!replyAudioUrl ? <span className="rounded-full bg-white/10 px-4 py-2 text-sm">Using browser voice fallback</span> : null}
+                </div>
+                <div className="mt-5 flex flex-wrap gap-3">
                   <span className="rounded-full bg-white/10 px-4 py-2 text-sm">
                     Confidence: {response.confidence.toFixed(2)}
                   </span>
@@ -282,6 +362,7 @@ function App() {
           )}
         </section>
       </section>
+      <audio className="hidden" ref={audioRef} src={replyAudioUrl} />
     </main>
   );
 }

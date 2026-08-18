@@ -6,12 +6,14 @@ async function requestSarvam(path: string, init: RequestInit) {
   const response = await fetch(`${env.SARVAM_BASE_URL}${path}`, {
     ...init,
     headers: {
+      "api-subscription-key": env.SARVAM_API_KEY,
       Authorization: `Bearer ${env.SARVAM_API_KEY}`,
       ...init.headers,
     },
   });
   if (!response.ok) {
-    throw new Error(`Sarvam request failed with status ${response.status}`);
+    const details = await response.text();
+    throw new Error(`Sarvam request failed with status ${response.status}: ${details}`);
   }
   return response;
 }
@@ -81,8 +83,9 @@ export async function synthesizeSpeech(text: string, language: string) {
       model: env.SARVAM_TTS_MODEL,
       text,
       language_code: language,
+      speaker: "shubh",
     }),
   });
-  const payload = await response.json() as { audio?: string };
-  return payload.audio ?? "";
+  const payload = await response.json() as { audio?: string; audios?: string[] };
+  return payload.audio ?? payload.audios?.[0] ?? "";
 }
