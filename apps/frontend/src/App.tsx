@@ -17,6 +17,8 @@ function App() {
   const chunksRef = useRef<BlobPart[]>([]);
   const [isRecording, setIsRecording] = useState(false);
   const [transcriptHint, setTranscriptHint] = useState("");
+  const [preferredLanguage, setPreferredLanguage] = useState("en-IN");
+  const [includeAudio, setIncludeAudio] = useState(true);
   const [response, setResponse] = useState<AssistantResponse | null>(null);
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -29,6 +31,14 @@ function App() {
       recorderRef.current?.stream.getTracks().forEach((track) => track.stop());
     };
   }, []);
+
+  useEffect(() => {
+    if (!response?.audioBase64) {
+      return;
+    }
+    const audio = new Audio(`data:audio/wav;base64,${response.audioBase64}`);
+    void audio.play().catch(() => undefined);
+  }, [response]);
 
   async function startRecording() {
     setError("");
@@ -85,7 +95,9 @@ function App() {
       setIsLoading(true);
       const formData = new FormData();
       formData.append("audio", audioBlob, "voice.webm");
-      formData.append("transcript_hint", transcriptHint);
+      formData.append("transcriptHint", transcriptHint);
+      formData.append("preferredLanguage", preferredLanguage);
+      formData.append("includeAudio", String(includeAudio));
       const data = await sendVoiceRequest(formData);
       setResponse(data);
     } catch (submissionError) {
@@ -99,11 +111,12 @@ function App() {
     event.preventDefault();
     try {
       setError("");
-      const formData = new FormData();
-      formData.append("title", knowledgeTitle);
-      formData.append("content", knowledgeContent);
-      formData.append("tags", knowledgeTags);
-      await uploadKnowledge(formData);
+      await uploadKnowledge({
+        title: knowledgeTitle,
+        content: knowledgeContent,
+        language: preferredLanguage,
+        tags: knowledgeTags.split(",").map((tag) => tag.trim()).filter(Boolean),
+      });
       setKnowledgeTitle("");
       setKnowledgeContent("");
       setKnowledgeTags("");
@@ -129,7 +142,7 @@ function App() {
           <div className="rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur">
             <h2 className="text-2xl font-semibold">Voice Console</h2>
             <p className="mt-2 text-sm text-slate-300">
-              Use browser speech recognition as a fast transcript hint, or let the backend call ElevenLabs if configured.
+              Use browser speech recognition as a fast transcript hint, or let the backend call Sarvam STT and TTS if configured.
             </p>
             <div className="mt-6 flex flex-wrap gap-4">
               <button
@@ -151,6 +164,29 @@ function App() {
             <div className="mt-6 rounded-2xl bg-slate-900/80 p-4">
               <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Transcript Hint</p>
               <p className="mt-3 min-h-16 text-slate-100">{transcriptHint || "Your live transcript will appear here."}</p>
+            </div>
+
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <label className="text-sm text-slate-300">
+                Preferred Language
+                <select
+                  className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 outline-none"
+                  value={preferredLanguage}
+                  onChange={(event) => setPreferredLanguage(event.target.value)}
+                >
+                  <option value="en-IN">English</option>
+                  <option value="hi-IN">Hindi</option>
+                  <option value="bn-IN">Bengali</option>
+                </select>
+              </label>
+              <label className="mt-7 flex items-center gap-3 text-sm text-slate-300">
+                <input
+                  checked={includeAudio}
+                  onChange={(event) => setIncludeAudio(event.target.checked)}
+                  type="checkbox"
+                />
+                Generate Sarvam TTS reply
+              </label>
             </div>
 
             {isLoading ? <p className="mt-4 text-amber-300">Processing customer audio...</p> : null}
@@ -201,10 +237,10 @@ function App() {
                 <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Transcript</p>
                 <p className="mt-3">{response.transcript || "No transcript available."}</p>
                 <p className="mt-5 text-sm uppercase tracking-[0.25em] text-slate-400">Normalized Query</p>
-                <p className="mt-3">{response.normalized_query || "No normalized query."}</p>
+                <p className="mt-3">{response.normalizedQuery || "No normalized query."}</p>
                 <p className="mt-5 text-sm uppercase tracking-[0.25em] text-slate-400">Expanded Queries</p>
                 <ul className="mt-3 space-y-2 text-sm text-slate-300">
-                  {response.expanded_queries.map((query) => (
+                  {response.expandedQueries.map((query) => (
                     <li key={query}>{query}</li>
                   ))}
                 </ul>
@@ -218,10 +254,10 @@ function App() {
                     Confidence: {response.confidence.toFixed(2)}
                   </span>
                   <span className="rounded-full bg-white/10 px-4 py-2 text-sm">
-                    Mode: {response.pipeline_mode}
+                    Mode: {response.pipelineMode}
                   </span>
                   <span className="rounded-full bg-white/10 px-4 py-2 text-sm">
-                    Escalate: {response.should_escalate ? "Yes" : "No"}
+                    Escalate: {response.shouldEscalate ? "Yes" : "No"}
                   </span>
                 </div>
               </article>
@@ -229,7 +265,7 @@ function App() {
               <article className="rounded-2xl bg-slate-900/80 p-5 lg:col-span-2">
                 <p className="text-sm uppercase tracking-[0.25em] text-slate-400">Retrieved Evidence</p>
                 <div className="mt-4 grid gap-4 lg:grid-cols-3">
-                  {response.retrieved_chunks.map((chunk) => (
+                  {response.retrievedChunks.map((chunk) => (
                     <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4" key={chunk.id}>
                       <p className="font-semibold">{chunk.title}</p>
                       <p className="mt-2 text-sm text-slate-300">{chunk.content}</p>

@@ -13,10 +13,18 @@ export async function sendVoiceRequest(formData: FormData): Promise<AssistantRes
   return response.json();
 }
 
-export async function uploadKnowledge(formData: FormData): Promise<void> {
+export async function uploadKnowledge(payload: {
+  title: string;
+  content: string;
+  language: string;
+  tags: string[];
+}): Promise<void> {
   const response = await fetch(`${API_BASE}/assistant/knowledge`, {
     method: "POST",
-    body: formData,
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
   });
   if (!response.ok) {
     throw new Error("Knowledge upload failed.");

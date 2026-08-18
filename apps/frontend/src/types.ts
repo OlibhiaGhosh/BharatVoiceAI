@@ -10,12 +10,13 @@ export type RetrievedChunk = {
 
 export type AssistantResponse = {
   transcript: string;
-  normalized_query: string;
-  expanded_queries: string[];
+  normalizedQuery: string;
+  expandedQueries: string[];
   answer: string;
   confidence: number;
-  should_escalate: boolean;
+  shouldEscalate: boolean;
   citations: string[];
-  retrieved_chunks: RetrievedChunk[];
-  pipeline_mode: string;
+  retrievedChunks: RetrievedChunk[];
+  pipelineMode: string;
+  audioBase64?: string;
 };
