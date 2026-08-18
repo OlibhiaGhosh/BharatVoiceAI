@@ -1,0 +1,34 @@
+import type { FastifyInstance } from "fastify";
+import { z } from "zod";
+
+import { ingestKnowledge, respondToCustomer } from "../services/rag.js";
+import { transcribeAudio } from "../services/sarvam.js";
+
+const ingestSchema = z.object({
+  title: z.string().min(3),
+  content: z.string().min(10),
+  language: z.string().default("en-IN"),
+  tags: z.array(z.string()).default([]),
+});
+
+export async function registerAssistantRoutes(server: FastifyInstance) {
+  server.post("/respond", async (request, reply) => {
+    const file = await request.file();
+    const fields = file?.fields ?? {};
+    const transcriptHint = typeof fields.transcriptHint?.value === "string" ? fields.transcriptHint.value : "";
+    const preferredLanguage = typeof fields.preferredLanguage?.value === "string" ? fields.preferredLanguage.value : "en-IN";
+    const transcript = await transcribeAudio(file ?? null, transcriptHint);
+    const response = await respondToCustomer({
+      transcript,
+      preferredLanguage,
+      includeAudio: false,
+    });
+    return reply.send(response);
+  });
+
+  server.post("/knowledge", async (request, reply) => {
+    const payload = ingestSchema.parse(request.body);
+    const response = await ingestKnowledge(payload);
+    return reply.code(201).send(response);
+  });
+}
