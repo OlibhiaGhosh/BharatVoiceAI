@@ -4,17 +4,28 @@
 
 :root {
   font-family: "Segoe UI", "Noto Sans", sans-serif;
+  color: #f8fafc;
   background:
-    radial-gradient(circle at top, rgba(245, 158, 11, 0.18), transparent 28%),
-    radial-gradient(circle at right, rgba(20, 184, 166, 0.16), transparent 28%),
+    radial-gradient(circle at top, rgba(245, 158, 11, 0.18), transparent 26%),
+    radial-gradient(circle at right, rgba(20, 184, 166, 0.18), transparent 30%),
     #020617;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  min-width: 320px;
 }
 
-textarea,
-button {
+button,
+input,
+textarea {
   font: inherit;
+}
+
+textarea {
+  resize: vertical;
 }

@@ -16,16 +16,21 @@ class AssistantService:
         expanded_queries = self.pipeline.expand(normalized_query) if normalized_query else []
         retrieved_chunks = self.pipeline.retrieve(expanded_queries)
         reranked_chunks = self.pipeline.rerank(normalized_query, retrieved_chunks)
-        answer = await self.llm_service.answer(normalized_query or transcript, reranked_chunks)
-        confidence = reranked_chunks[0].score if reranked_chunks else 0.0
+        confidence = self.pipeline.confidence(reranked_chunks)
+        should_escalate = self.pipeline.should_escalate(confidence)
+        answer = await self.llm_service.answer(
+            query=normalized_query or transcript,
+            chunks=reranked_chunks,
+            should_escalate=should_escalate,
+        )
         return AssistantResponse(
             transcript=transcript,
             normalized_query=normalized_query,
             expanded_queries=expanded_queries,
             answer=answer,
             confidence=confidence,
-            should_escalate=False,
+            should_escalate=should_escalate,
             citations=[chunk.title for chunk in reranked_chunks],
             retrieved_chunks=reranked_chunks,
-            pipeline_mode="hybrid-rerank",
+            pipeline_mode="advanced",
         )

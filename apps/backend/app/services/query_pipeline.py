@@ -1,6 +1,7 @@
 import re
 from collections import Counter
 
+from app.core.config import get_settings
 from app.models.schemas import KnowledgeChunk
 from app.services.knowledge_store import KnowledgeStore
 
@@ -26,6 +27,7 @@ SYNONYMS = {
 
 class QueryPipeline:
     def __init__(self) -> None:
+        self.settings = get_settings()
         self.store = KnowledgeStore()
 
     def normalize(self, query: str) -> str:
@@ -44,20 +46,9 @@ class QueryPipeline:
         chunks = self.store.list_chunks()
         scored: list[KnowledgeChunk] = []
         for chunk in chunks:
-            best = 0.0
-            content = f"{chunk.title} {chunk.content} {' '.join(chunk.tags)}".lower()
-            content_terms = Counter(content.split())
-            for query in expanded_queries:
-                score = 0.0
-                for term in query.split():
-                    score += content_terms.get(term, 0) * 0.18
-                    if term in chunk.tags:
-                        score += 0.24
-                if any(tag in query for tag in chunk.tags):
-                    score += 0.1
-                best = max(best, score)
-            if best > 0:
-                scored.append(chunk.model_copy(update={"score": round(best, 3)}))
+            score = self._score_chunk(chunk, expanded_queries)
+            if score > 0:
+                scored.append(chunk.model_copy(update={"score": round(score, 3)}))
         scored.sort(key=lambda item: item.score, reverse=True)
         return scored[:limit]
 
@@ -71,3 +62,26 @@ class QueryPipeline:
             reranked.append(chunk.model_copy(update={"score": round(chunk.score + bonus, 3)}))
         reranked.sort(key=lambda item: item.score, reverse=True)
         return reranked
+
+    def confidence(self, chunks: list[KnowledgeChunk]) -> float:
+        if not chunks:
+            return 0.0
+        return min(1.0, round(chunks[0].score, 3))
+
+    def should_escalate(self, confidence: float) -> bool:
+        return confidence < self.settings.confidence_threshold
+
+    def _score_chunk(self, chunk: KnowledgeChunk, expanded_queries: list[str]) -> float:
+        content = f"{chunk.title} {chunk.content} {' '.join(chunk.tags)}".lower()
+        content_terms = Counter(content.split())
+        best = 0.0
+        for query in expanded_queries:
+            score = 0.0
+            for term in query.split():
+                score += content_terms.get(term, 0) * 0.18
+                if term in chunk.tags:
+                    score += 0.24
+            if any(tag in query for tag in chunk.tags):
+                score += 0.1
+            best = max(best, score)
+        return best
