@@ -17,11 +17,12 @@ export async function registerAssistantRoutes(server: FastifyInstance) {
     const fields = file?.fields ?? {};
     const transcriptHint = typeof fields.transcriptHint?.value === "string" ? fields.transcriptHint.value : "";
     const preferredLanguage = typeof fields.preferredLanguage?.value === "string" ? fields.preferredLanguage.value : "en-IN";
+    const includeAudio = fields.includeAudio?.value === "true";
     const transcript = await transcribeAudio(file ?? null, transcriptHint);
     const response = await respondToCustomer({
       transcript,
       preferredLanguage,
-      includeAudio: false,
+      includeAudio,
     });
     return reply.send(response);
   });
