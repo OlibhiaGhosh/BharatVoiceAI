@@ -57,12 +57,18 @@ export async function upsertKnowledgeChunk(chunk: Omit<KnowledgeChunk, "score">)
 
 export async function searchKnowledge(query: string, limit = 5): Promise<KnowledgeChunk[]> {
   await ensureSeededVectors();
-  const results = await client.search(env.QDRANT_COLLECTION, {
+  const results = await (client as unknown as {
+    search: (collection: string, payload: {
+      vector: number[];
+      limit: number;
+      with_payload: boolean;
+    }) => Promise<Array<{ payload?: unknown; score?: number }>>;
+  }).search(env.QDRANT_COLLECTION, {
     vector: embedText(query),
     limit,
     with_payload: true,
   });
-  return results.map((item) => {
+  return results.map((item: { payload?: unknown; score?: number }) => {
     const payload = item.payload as Omit<KnowledgeChunk, "score">;
     return {
       ...payload,

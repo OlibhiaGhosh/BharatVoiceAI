@@ -29,7 +29,7 @@ export async function transcribeAudio(audio: MultipartFile | null, transcriptHin
   const buffer = await audio.toBuffer();
   const formData = new FormData();
   formData.append("model", env.SARVAM_STT_MODEL);
-  formData.append("file", new Blob([buffer]), audio.filename || "voice.webm");
+  formData.append("file", new Blob([new Uint8Array(buffer)]), audio.filename || "voice.webm");
   const response = await requestSarvam("/speech-to-text", {
     method: "POST",
     body: formData,
