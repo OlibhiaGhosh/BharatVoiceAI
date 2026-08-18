@@ -1,0 +1,20 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  font-family: "Segoe UI", "Noto Sans", sans-serif;
+  background:
+    radial-gradient(circle at top, rgba(245, 158, 11, 0.18), transparent 28%),
+    radial-gradient(circle at right, rgba(20, 184, 166, 0.16), transparent 28%),
+    #020617;
+}
+
+body {
+  margin: 0;
+}
+
+textarea,
+button {
+  font: inherit;
+}
