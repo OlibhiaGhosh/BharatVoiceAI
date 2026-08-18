@@ -58,10 +58,10 @@ Knowledge Layer
 - `feat2`: Fastify backend health, config, and TypeScript skeleton
 - `feat3`: basic STT to simple retrieval endpoint
 - `feat4`: frontend voice UI and transcript rendering
-- `feat5`: Sarvam STT/TTS and chat provider integration
-- `feat6`: Neon + Drizzle schema and repository layer
-- `feat7`: Qdrant retrieval and reranking
-- `feat8`: confidence gating, upload ingestion, and richer response metadata
+- `feat5`: Neon + Drizzle schema and repository layer
+- `feat6`: Qdrant retrieval primitives
+- `feat7`: advanced retrieval, reranking, and confidence gating
+- `feat8`: final documentation and delivery polish
 - `final`: cleaned integrated product state
 
 ## Data Model
