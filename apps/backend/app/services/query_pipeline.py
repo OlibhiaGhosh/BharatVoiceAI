@@ -48,9 +48,26 @@ class QueryPipeline:
             content = f"{chunk.title} {chunk.content} {' '.join(chunk.tags)}".lower()
             content_terms = Counter(content.split())
             for query in expanded_queries:
-                score = sum(content_terms.get(term, 0) * 0.18 for term in query.split())
+                score = 0.0
+                for term in query.split():
+                    score += content_terms.get(term, 0) * 0.18
+                    if term in chunk.tags:
+                        score += 0.24
+                if any(tag in query for tag in chunk.tags):
+                    score += 0.1
                 best = max(best, score)
             if best > 0:
                 scored.append(chunk.model_copy(update={"score": round(best, 3)}))
         scored.sort(key=lambda item: item.score, reverse=True)
         return scored[:limit]
+
+    def rerank(self, query: str, chunks: list[KnowledgeChunk]) -> list[KnowledgeChunk]:
+        reranked: list[KnowledgeChunk] = []
+        query_terms = set(query.split())
+        for chunk in chunks:
+            title_overlap = len(query_terms.intersection(set(chunk.title.lower().split())))
+            tag_overlap = len(query_terms.intersection(set(chunk.tags)))
+            bonus = (title_overlap * 0.2) + (tag_overlap * 0.15)
+            reranked.append(chunk.model_copy(update={"score": round(chunk.score + bonus, 3)}))
+        reranked.sort(key=lambda item: item.score, reverse=True)
+        return reranked
