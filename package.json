@@ -10,5 +10,8 @@
     "dev:frontend": "npm run dev --workspace apps/frontend",
     "dev:backend": "npm run dev --workspace apps/backend",
     "build": "npm run build --workspace apps/backend && npm run build --workspace apps/frontend"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0"
   }
 }
