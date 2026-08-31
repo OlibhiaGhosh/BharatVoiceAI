@@ -18,26 +18,39 @@ async function requestSarvam(path: string, init: RequestInit) {
   return response;
 }
 
-export async function transcribeAudio(audio: MultipartFile | null, transcriptHint: string) {
-  if (transcriptHint.trim()) {
+export async function transcribeAudio(audio: MultipartFile | null, language: string, transcriptHint: string) {
+  if (!audio) {
     return transcriptHint.trim();
   }
-  if (!audio) {
-    return "";
-  }
   if (!env.SARVAM_API_KEY) {
-    return "Audio received, but Sarvam API is not configured. Use browser speech transcription or add credentials.";
+    return transcriptHint.trim();
   }
-  const buffer = await audio.toBuffer();
-  const formData = new FormData();
-  formData.append("model", env.SARVAM_STT_MODEL);
-  formData.append("file", new Blob([new Uint8Array(buffer)]), audio.filename || "voice.webm");
-  const response = await requestSarvam("/speech-to-text", {
-    method: "POST",
-    body: formData,
-  });
-  const payload = await response.json() as { transcript?: string; text?: string };
-  return payload.transcript ?? payload.text ?? "";
+  try {
+    const buffer = await audio.toBuffer();
+    const formData = new FormData();
+    const mimeType = audio.mimetype.split(";")[0] || "audio/webm";
+
+    formData.append("model", env.SARVAM_STT_MODEL);
+    formData.append("language_code", language || "unknown");
+    formData.append("mode", "transcribe");
+    formData.append(
+      "file",
+      new Blob([new Uint8Array(buffer)], { type: mimeType }),
+      audio.filename || "voice.webm",
+    );
+
+    const response = await requestSarvam("/speech-to-text", {
+      method: "POST",
+      body: formData,
+    });
+    const payload = await response.json() as { transcript?: string; text?: string };
+    return payload.transcript?.trim() || payload.text?.trim() || transcriptHint.trim();
+  } catch (error) {
+    if (transcriptHint.trim()) {
+      return transcriptHint.trim();
+    }
+    throw error;
+  }
 }
 
 export async function generateAnswer(query: string, context: string, shouldEscalate: boolean) {
@@ -89,3 +102,6 @@ export async function synthesizeSpeech(text: string, language: string) {
   const payload = await response.json() as { audio?: string; audios?: string[] };
   return payload.audio ?? payload.audios?.[0] ?? "";
 }
+
+
+

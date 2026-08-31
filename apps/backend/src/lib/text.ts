@@ -1,6 +1,24 @@
 import type { KnowledgeChunk } from "../types.js";
 
-const fillerTerms = new Set(["please", "actually", "basically", "hello", "hi", "hey", "uh", "um"]);
+const fillerTerms = new Set([
+  "please",
+  "actually",
+  "basically",
+  "hello",
+  "hi",
+  "hey",
+  "uh",
+  "um",
+  "ji",
+  "tell",
+  "me",
+  "about",
+  "can",
+  "could",
+  "would",
+  "you",
+  "first",
+]);
 
 const synonyms: Record<string, string[]> = {
   refund: ["refund status", "money back", "return refund"],
