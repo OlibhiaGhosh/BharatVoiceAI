@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import { sendVoiceRequest, uploadKnowledge, uploadKnowledgeSource } from "./api";
-import type { AssistantResponse } from "./types";
+import type { AssistantResponse, IngestionResult } from "./types";
 
 type SpeechRecognitionCtor = new () => SpeechRecognition;
 
@@ -181,6 +181,22 @@ function App() {
     if (knowledgeState === "uploading") {
       return;
     }
+    const validationError =
+      knowledgeSourceType === "manual" && knowledgeContent.trim().length < 10
+        ? "Add at least 10 characters of content before saving a manual entry."
+        : (knowledgeSourceType === "website" || knowledgeSourceType === "youtube") && !knowledgeUrl.trim()
+          ? `Add a ${knowledgeSourceType === "website" ? "website" : "YouTube"} URL before saving.`
+          : knowledgeSourceType === "pdf" && !knowledgeFile
+            ? "Choose a PDF file before saving."
+            : "";
+
+    if (validationError) {
+      setUploadMessage("");
+      setKnowledgeState("idle");
+      setError(validationError);
+      return;
+    }
+
     let wasSuccessful = false;
     try {
       setError("");
@@ -188,8 +204,10 @@ function App() {
       setKnowledgeState("uploading");
       const tags = knowledgeTags.split(",").map((tag) => tag.trim()).filter(Boolean);
 
+      let result: IngestionResult;
+
       if (knowledgeSourceType === "manual") {
-        await uploadKnowledge({
+        result = await uploadKnowledge({
           title: knowledgeTitle,
           content: knowledgeContent,
           language: preferredLanguage,
@@ -205,7 +223,7 @@ function App() {
         if (knowledgeFile) {
           formData.append("file", knowledgeFile);
         }
-        await uploadKnowledgeSource(formData);
+        result = await uploadKnowledgeSource(formData);
       }
 
       setKnowledgeTitle("");
@@ -215,7 +233,14 @@ function App() {
       setKnowledgeFile(null);
       wasSuccessful = true;
       setKnowledgeState("success");
-      setUploadMessage(`Knowledge source added successfully from ${knowledgeSourceType}.`);
+      setUploadMessage(
+        [
+          `Added ${result.totalChunks} ${result.totalChunks === 1 ? "chunk" : "chunks"} to the knowledge base from ${knowledgeSourceType}.`,
+          result.notes,
+        ]
+          .filter(Boolean)
+          .join(" "),
+      );
     } catch (uploadError) {
       setKnowledgeState("idle");
       setError(uploadError instanceof Error ? uploadError.message : "Could not upload knowledge.");
@@ -466,7 +491,11 @@ function App() {
                   accept="application/pdf"
                   className="mt-2 w-full rounded-2xl border border-white/10 bg-slate-950/70 px-4 py-3 outline-none file:mr-4 file:rounded-full file:border-0 file:bg-teal-500 file:px-4 file:py-2 file:text-sm file:font-medium file:text-slate-950"
                   disabled={knowledgeState === "uploading"}
-                  onChange={(event) => setKnowledgeFile(event.target.files?.[0] ?? null)}
+                  onChange={(event) => {
+                    setKnowledgeFile(event.target.files?.[0] ?? null);
+                    setKnowledgeState("idle");
+                    setUploadMessage("");
+                  }}
                   type="file"
                 />
               </label>
