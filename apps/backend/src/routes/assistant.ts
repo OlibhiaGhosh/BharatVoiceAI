@@ -84,16 +84,23 @@ export async function registerAssistantRoutes(server: FastifyInstance) {
   server.post("/knowledge/source", async (request, reply) => {
     const payload = await readKnowledgeSourceForm(request);
     const sourceType = z.enum(["website", "youtube", "pdf"]).parse(payload.sourceType);
-    const response = await ingestKnowledgeSource({
-      sourceType,
-      title: payload.title,
-      url: payload.url,
-      language: payload.language,
-      tags: payload.tags,
-      file: payload.file,
-    });
-    return reply.code(201).send(response);
+    try {
+      const response = await ingestKnowledgeSource({
+        sourceType,
+        title: payload.title,
+        url: payload.url,
+        language: payload.language,
+        tags: payload.tags,
+        file: payload.file,
+      });
+      return reply.code(201).send(response);
+    } catch (error) {
+      return reply.code(422).send({
+        message: error instanceof Error ? error.message : "Knowledge source could not be added.",
+      });
+    }
   });
 }
+
 
 

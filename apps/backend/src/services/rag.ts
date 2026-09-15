@@ -1,5 +1,5 @@
 import { PDFLoader } from "@langchain/community/document_loaders/fs/pdf";
-import { CheerioWebBaseLoader } from "@langchain/community/document_loaders/web/cheerio";
+import { load } from "cheerio";
 import { Document } from "@langchain/core/documents";
 import { ChatGoogle } from "@langchain/google";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
@@ -411,12 +411,63 @@ function toTitleCaseSource(source: KnowledgeSourceType) {
   return source.charAt(0).toUpperCase() + source.slice(1);
 }
 
+function normalizeWebsiteUrl(value: string) {
+  const candidate = /^https?:\/\//i.test(value) ? value : "https://" + value;
+  const parsed = new URL(candidate);
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    throw new Error("Website URLs must use http or https.");
+  }
+  if (/^(localhost|127\.|0\.0\.0\.0|::1$)/i.test(parsed.hostname)) {
+    throw new Error("Local network URLs cannot be added to the knowledge base.");
+  }
+
+  return parsed;
+}
+
 async function loadWebsiteSource(url: string) {
-  const loader = new CheerioWebBaseLoader(url, {
-    selector: "body",
-    timeout: 15000,
+  const parsedUrl = normalizeWebsiteUrl(url);
+  const response = await fetch(parsedUrl, {
+    headers: {
+      Accept: "text/html,application/xhtml+xml",
+      "User-Agent": "BharatVoiceAI-RAG/1.0 (+website knowledge ingestion)",
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(20_000),
   });
-  return loader.load();
+
+  if (!response.ok) {
+    throw new Error("Website returned HTTP " + response.status + ". Check that the page is public and reachable.");
+  }
+
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/html") && !contentType.includes("application/xhtml+xml")) {
+    throw new Error("The supplied URL did not return an HTML webpage.");
+  }
+
+  const html = await response.text();
+  const $ = load(html);
+  $("script, style, noscript, svg, nav, footer, header, aside, form, iframe").remove();
+
+  const title = cleanContent($("meta[property='og:title']").attr("content") ?? $("title").first().text() ?? "");
+  const main = $("main, article, [role='main'], .content, .post, .article").first();
+  const pageText = cleanContent((main.length ? main : $("body")).text());
+
+  if (pageText.length < 80) {
+    throw new Error(
+      "This website did not expose enough readable text. It may require sign-in or client-side JavaScript. Use a public article URL, a PDF, or paste the content manually.",
+    );
+  }
+
+  return [
+    new Document({
+      pageContent: pageText,
+      metadata: {
+        title: title || parsedUrl.hostname,
+        source: response.url,
+      },
+    }),
+  ];
 }
 
 async function loadYoutubeSource(url: string, language: string) {
@@ -582,6 +633,7 @@ export async function ingestKnowledgeSource(input: {
     documents,
   });
 }
+
 
 
 

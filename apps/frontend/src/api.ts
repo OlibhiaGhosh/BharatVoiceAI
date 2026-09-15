@@ -44,7 +44,8 @@ export async function uploadKnowledgeSource(formData: FormData): Promise<void> {
     body: formData,
   });
   if (!response.ok) {
-    throw new Error("Knowledge source upload failed.");
+    throw new Error(await responseError(response, "Knowledge source upload failed."));
   }
 }
+
 
