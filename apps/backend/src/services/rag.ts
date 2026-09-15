@@ -8,6 +8,7 @@ import { env } from "../lib/env.js";
 import { createKnowledgeDocument, listKnowledgeMetadata, recordConversation, recordIngestionEvent } from "../lib/repository.js";
 import { searchKnowledge, upsertKnowledgeChunks } from "../lib/qdrant.js";
 import { expandQuery, lexicalScore, normalizeQuery } from "../lib/text.js";
+import { loadYoutubeSource } from "../lib/youtube.js";
 import type { AssistantResponse, KnowledgeChunk } from "../types.js";
 import { synthesizeSpeech } from "./sarvam.js";
 
@@ -17,6 +18,7 @@ type IngestionResult = {
   status: "stored";
   documentId: string;
   totalChunks: number;
+  notes?: string;
 };
 
 type UploadedPdf = {
@@ -30,16 +32,25 @@ const splitter = new RecursiveCharacterTextSplitter({
   chunkOverlap: 180,
 });
 
-const chatModel = new ChatGoogle({
-  apiKey: env.GOOGLE_API_KEY,
-  model: env.GEMINI_MODEL,
-  temperature: 0.2,
-});
-
 function ensureGeminiConfigured() {
   if (!env.GOOGLE_API_KEY) {
     throw new Error("GOOGLE_API_KEY is required to use the Gemini-based RAG pipeline.");
   }
+}
+
+let chatModelInstance: ChatGoogle | null = null;
+
+/** Lazily built so a missing API key surfaces as a request error, not a boot crash. */
+function getChatModel() {
+  ensureGeminiConfigured();
+  if (!chatModelInstance) {
+    chatModelInstance = new ChatGoogle({
+      apiKey: env.GOOGLE_API_KEY,
+      model: env.GEMINI_MODEL,
+      temperature: 0.2,
+    });
+  }
+  return chatModelInstance;
 }
 
 function rerank(query: string, chunks: KnowledgeChunk[]) {
@@ -94,7 +105,7 @@ async function expandQueryWithGemini(query: string) {
     return fallback;
   }
 
-  const response = await chatModel.invoke([
+  const response = await getChatModel().invoke([
     {
       role: "system",
       content: "Generate short retrieval-friendly search rewrites for customer support RAG. Return plain text lines only.",
@@ -290,7 +301,7 @@ async function generateGroundedAnswer(query: string, preferredLanguage: string, 
     )
     .join("\n\n");
 
-  const response = await chatModel.invoke([
+  const response = await getChatModel().invoke([
     {
       role: "system",
       content:
@@ -411,6 +422,21 @@ function toTitleCaseSource(source: KnowledgeSourceType) {
   return source.charAt(0).toUpperCase() + source.slice(1);
 }
 
+// Loopback, private, and link-local targets. Node reports IPv6 hostnames wrapped in
+// brackets, so the IPv6 entries have to tolerate them.
+const privateHostPatterns = [
+  /^localhost$/i,
+  /^\[?::1\]?$/,
+  /^\[?(fc|fd)[0-9a-f]{2}:/i,
+  /^\[?fe80:/i,
+  /^127\./,
+  /^10\./,
+  /^192\.168\./,
+  /^172\.(1[6-9]|2\d|3[01])\./,
+  /^169\.254\./,
+  /^0\.0\.0\.0$/,
+];
+
 function normalizeWebsiteUrl(value: string) {
   const candidate = /^https?:\/\//i.test(value) ? value : "https://" + value;
   const parsed = new URL(candidate);
@@ -418,8 +444,8 @@ function normalizeWebsiteUrl(value: string) {
   if (!["http:", "https:"].includes(parsed.protocol)) {
     throw new Error("Website URLs must use http or https.");
   }
-  if (/^(localhost|127\.|0\.0\.0\.0|::1$)/i.test(parsed.hostname)) {
-    throw new Error("Local network URLs cannot be added to the knowledge base.");
+  if (privateHostPatterns.some((pattern) => pattern.test(parsed.hostname))) {
+    throw new Error("Local and private network URLs cannot be added to the knowledge base.");
   }
 
   return parsed;
@@ -427,14 +453,20 @@ function normalizeWebsiteUrl(value: string) {
 
 async function loadWebsiteSource(url: string) {
   const parsedUrl = normalizeWebsiteUrl(url);
-  const response = await fetch(parsedUrl, {
-    headers: {
-      Accept: "text/html,application/xhtml+xml",
-      "User-Agent": "BharatVoiceAI-RAG/1.0 (+website knowledge ingestion)",
-    },
-    redirect: "follow",
-    signal: AbortSignal.timeout(20_000),
-  });
+  let response: Response;
+  try {
+    response = await fetch(parsedUrl, {
+      headers: {
+        Accept: "text/html,application/xhtml+xml",
+        "User-Agent": "BharatVoiceAI-RAG/1.0 (+website knowledge ingestion)",
+      },
+      redirect: "follow",
+      signal: AbortSignal.timeout(20_000),
+    });
+  } catch (error) {
+    const reason = error instanceof Error && error.name === "TimeoutError" ? "did not respond in time" : "could not be reached";
+    throw new Error(`${parsedUrl.hostname} ${reason}. Check the address and that the page is publicly accessible.`);
+  }
 
   if (!response.ok) {
     throw new Error("Website returned HTTP " + response.status + ". Check that the page is public and reachable.");
@@ -468,15 +500,6 @@ async function loadWebsiteSource(url: string) {
       },
     }),
   ];
-}
-
-async function loadYoutubeSource(url: string, language: string) {
-  const { YoutubeLoader } = await import("@langchain/community/document_loaders/web/youtube");
-  const loader = YoutubeLoader.createFromUrl(url, {
-    addVideoInfo: true,
-    language: language.split("-")[0],
-  });
-  return loader.load();
 }
 
 async function loadPdfSource(file: UploadedPdf) {
@@ -604,17 +627,19 @@ export async function ingestKnowledgeSource(input: {
     if (!url) {
       throw new Error("A YouTube URL is required for YouTube ingestion.");
     }
-    const documents = await loadYoutubeSource(url, input.language);
+    const { documents, notes } = await loadYoutubeSource(url, input.language);
     const suggestedTitle = String((documents[0]?.metadata as Record<string, unknown> | undefined)?.title ?? url);
-    return persistKnowledgeSource({
+    const sourceUrl = String((documents[0]?.metadata as Record<string, unknown> | undefined)?.source ?? url);
+    const result = await persistKnowledgeSource({
       title: input.title?.trim() || suggestedTitle || `${toTitleCaseSource(input.sourceType)} Source`,
       content: documents.map((document) => cleanContent(document.pageContent)).join("\n\n"),
       language: input.language,
       tags,
       source: "youtube",
-      sourceUrl: url,
+      sourceUrl,
       documents,
     });
+    return notes ? { ...result, notes } : result;
   }
 
   if (!input.file) {

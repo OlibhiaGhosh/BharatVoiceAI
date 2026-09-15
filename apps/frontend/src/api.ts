@@ -1,4 +1,4 @@
-import type { AssistantResponse } from "./types";
+import type { AssistantResponse, IngestionResult } from "./types";
 
 const API_BASE = import.meta.env.VITE_API_URL ?? "http://localhost:8000/api";
 
@@ -25,7 +25,7 @@ export async function uploadKnowledge(payload: {
   content: string;
   language: string;
   tags: string[];
-}): Promise<void> {
+}): Promise<IngestionResult> {
   const response = await fetch(`${API_BASE}/assistant/knowledge`, {
     method: "POST",
     headers: {
@@ -34,11 +34,12 @@ export async function uploadKnowledge(payload: {
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    throw new Error("Knowledge upload failed.");
+    throw new Error(await responseError(response, "Knowledge upload failed."));
   }
+  return response.json();
 }
 
-export async function uploadKnowledgeSource(formData: FormData): Promise<void> {
+export async function uploadKnowledgeSource(formData: FormData): Promise<IngestionResult> {
   const response = await fetch(`${API_BASE}/assistant/knowledge/source`, {
     method: "POST",
     body: formData,
@@ -46,6 +47,7 @@ export async function uploadKnowledgeSource(formData: FormData): Promise<void> {
   if (!response.ok) {
     throw new Error(await responseError(response, "Knowledge source upload failed."));
   }
+  return response.json();
 }
 
 

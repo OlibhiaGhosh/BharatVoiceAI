@@ -8,11 +8,6 @@ import type { KnowledgeChunk } from "../types.js";
 import { env } from "./env.js";
 import { seedKnowledge } from "./seed-knowledge.js";
 
-const embeddings = new GoogleGenerativeAIEmbeddings({
-  apiKey: env.GOOGLE_API_KEY,
-  model: env.GEMINI_EMBEDDING_MODEL,
-});
-
 const client = new QdrantClient({
   url: env.QDRANT_URL,
   apiKey: env.QDRANT_API_KEY || undefined,
@@ -27,6 +22,23 @@ function ensureGeminiConfigured() {
   if (!env.GOOGLE_API_KEY) {
     throw new Error("GOOGLE_API_KEY is required for the LangChain + Gemini RAG pipeline.");
   }
+}
+
+let embeddingsInstance: GoogleGenerativeAIEmbeddings | null = null;
+
+/**
+ * Built on first use, not at import time: the constructor throws when no API key is
+ * set, which would stop the server from booting before it can report the problem.
+ */
+function getEmbeddings() {
+  ensureGeminiConfigured();
+  if (!embeddingsInstance) {
+    embeddingsInstance = new GoogleGenerativeAIEmbeddings({
+      apiKey: env.GOOGLE_API_KEY,
+      model: env.GEMINI_EMBEDDING_MODEL,
+    });
+  }
+  return embeddingsInstance;
 }
 
 function isUuid(value: string) {
@@ -55,8 +67,26 @@ function toVectorDocument(chunk: Omit<KnowledgeChunk, "score">) {
   });
 }
 
+function toEmbeddingError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/API[_ ]KEY[_ ]INVALID|API key not valid/i.test(message)) {
+    return new Error("GOOGLE_API_KEY was rejected by Google. Check the key in apps/backend/.env.");
+  }
+  if (/not found|is not supported|404/i.test(message)) {
+    return new Error(
+      `Gemini rejected the embedding model "${env.GEMINI_EMBEDDING_MODEL}". Check GEMINI_EMBEDDING_MODEL in apps/backend/.env.`,
+    );
+  }
+  if (/quota|rate limit|429/i.test(message)) {
+    return new Error("Gemini rate limit or quota reached. Wait a moment and try again.");
+  }
+  return error instanceof Error ? error : new Error(message);
+}
+
 async function embedDocumentContent(text: string) {
-  const vector = await embeddings.embedQuery(text);
+  const vector = await getEmbeddings().embedQuery(text).catch((error: unknown) => {
+    throw toEmbeddingError(error);
+  });
   if (!vector.length) {
     throw new Error(
       `Gemini returned an empty embedding vector. Check GOOGLE_API_KEY and GEMINI_EMBEDDING_MODEL (${env.GEMINI_EMBEDDING_MODEL}).`,
@@ -124,7 +154,7 @@ async function getVectorStore() {
   ensureGeminiConfigured();
   if (!vectorStorePromise) {
     await ensureCollectionCompatibility();
-    vectorStorePromise = QdrantVectorStore.fromExistingCollection(embeddings, {
+    vectorStorePromise = QdrantVectorStore.fromExistingCollection(getEmbeddings(), {
       client,
       collectionName: env.QDRANT_COLLECTION,
     });
@@ -137,6 +167,20 @@ export async function ensureSeededVectors() {
     return;
   }
   const vectorStore = await getVectorStore();
+
+  // Skip the work when the seed points are already stored, otherwise every restart
+  // re-embeds them and makes the first query of the process wait on them. This checks
+  // for the seed ids specifically: a collection can hold uploaded knowledge and still
+  // be missing the seeds.
+  const seedIds = seedKnowledge.map((chunk) => toPointId(chunk.id));
+  const stored = await client
+    .retrieve(env.QDRANT_COLLECTION, { ids: seedIds, with_payload: false, with_vector: false })
+    .catch(() => []);
+  if (stored.length === seedIds.length) {
+    hasSeeded = true;
+    return;
+  }
+
   await addChunkDocuments(vectorStore, seedKnowledge);
   hasSeeded = true;
 }
@@ -156,7 +200,9 @@ export async function upsertKnowledgeChunks(chunks: Array<Omit<KnowledgeChunk, "
 export async function searchKnowledge(query: string, limit = 5): Promise<KnowledgeChunk[]> {
   await ensureSeededVectors();
   const vectorStore = await getVectorStore();
-  const queryVector = await embeddings.embedQuery(query);
+  const queryVector = await getEmbeddings().embedQuery(query).catch((error: unknown) => {
+    throw toEmbeddingError(error);
+  });
   const results = await vectorStore.similaritySearchVectorWithScore(queryVector, limit);
 
   return results.map(([document, score]) => {

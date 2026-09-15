@@ -20,3 +20,10 @@ export type AssistantResponse = {
   pipelineMode: string;
   audioBase64?: string;
 };
+
+export type IngestionResult = {
+  status: string;
+  documentId: string;
+  totalChunks: number;
+  notes?: string;
+};
